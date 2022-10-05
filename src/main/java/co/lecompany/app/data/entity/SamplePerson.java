@@ -1,6 +1,7 @@
 package co.lecompany.app.data.entity;
 
 import java.time.LocalDate;
+import javax.persistence.Basic;
 import javax.persistence.Entity;
 
 @Entity

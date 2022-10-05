@@ -1,8 +1,13 @@
 package co.lecompany.app.views.userslist;
 
 import co.lecompany.app.data.entity.SamplePerson;
+import co.lecompany.app.data.service.RedisService;
 import co.lecompany.app.data.service.SamplePersonService;
 import co.lecompany.app.views.MainLayout;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.vaadin.flow.component.Component;
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.button.Button;
@@ -28,15 +33,24 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.router.RouteAlias;
 import com.vaadin.flow.spring.data.VaadinSpringDataHelpers;
+
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.stream.Stream;
+
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 
 @PageTitle("Users List")
 @Route(value = "users-list/:samplePersonID?/:action?(edit)", layout = MainLayout.class)
 @RouteAlias(value = "", layout = MainLayout.class)
 @Uses(Icon.class)
+@Slf4j
 public class UsersListView extends Div implements BeforeEnterObserver {
 
     private final String SAMPLEPERSON_ID = "samplePersonID";
@@ -61,9 +75,16 @@ public class UsersListView extends Div implements BeforeEnterObserver {
 
     private final SamplePersonService samplePersonService;
 
+    private final RedisService redisService;
+
+    private final ObjectMapper objectMapper;
+
     @Autowired
-    public UsersListView(SamplePersonService samplePersonService) {
+    public UsersListView(SamplePersonService samplePersonService, RedisService redisService, ObjectMapper objectMapper) {
         this.samplePersonService = samplePersonService;
+        this.redisService = redisService;
+        this.objectMapper = objectMapper;
+
         addClassNames("users-list-view");
 
         // Create UI
@@ -82,7 +103,7 @@ public class UsersListView extends Div implements BeforeEnterObserver {
         grid.addColumn("dateOfBirth").setAutoWidth(true);
         grid.addColumn("occupation").setAutoWidth(true);
         LitRenderer<SamplePerson> importantRenderer = LitRenderer.<SamplePerson>of(
-                "<vaadin-icon icon='vaadin:${item.icon}' style='width: var(--lumo-icon-size-s); height: var(--lumo-icon-size-s); color: ${item.color};'></vaadin-icon>")
+                        "<vaadin-icon icon='vaadin:${item.icon}' style='width: var(--lumo-icon-size-s); height: var(--lumo-icon-size-s); color: ${item.color};'></vaadin-icon>")
                 .withProperty("icon", important -> important.isImportant() ? "check" : "minus").withProperty("color",
                         important -> important.isImportant()
                                 ? "var(--lumo-primary-text-color)"
@@ -90,9 +111,21 @@ public class UsersListView extends Div implements BeforeEnterObserver {
 
         grid.addColumn(importantRenderer).setHeader("Important").setAutoWidth(true);
 
-        grid.setItems(query -> samplePersonService.list(
-                PageRequest.of(query.getPage(), query.getPageSize(), VaadinSpringDataHelpers.toSpringDataSort(query)))
-                .stream());
+        grid.setItems(query -> {
+            try {
+                String value = redisService.get(objectMapper.writeValueAsString(query));
+                if (StringUtils.isEmpty(value) || value.equals("null")) {
+                    Page<SamplePerson> data = samplePersonService.list(
+                                    PageRequest.of(query.getPage(), query.getPageSize(), VaadinSpringDataHelpers.toSpringDataSort(query)));
+                    redisService.add(objectMapper.writeValueAsString(query), objectMapper.writeValueAsString(data.stream().toArray()), 3600L);
+                    return data.get();
+                }
+                List<SamplePerson> samplePersonList = objectMapper.readValue(value.substring(1, value.length() - 1).replace("\\", ""), new TypeReference<>() {});
+                return samplePersonList.stream();
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        });
         grid.addThemeVariants(GridVariant.LUMO_NO_BORDER);
 
         // when a row is selected or deselected, populate form
