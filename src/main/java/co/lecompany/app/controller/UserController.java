@@ -79,7 +79,7 @@ public class UserController {
             log.error("Get user catch exception: {}", ex.getMessage(), ex);
         }
         Long duration = System.currentTimeMillis() - startTime;
-        log.info("END POST----/api/v1/users with response {} after `{}`ms", objectMapper.writeValueAsString(baseResponse), duration);
+        log.info("END DELETE----/api/v1/users/{} with response {} after `{}`ms", objectMapper.writeValueAsString(baseResponse), duration);
         return new ResponseEntity<>(baseResponse, HttpStatus.OK);
     }
 }
